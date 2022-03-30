@@ -35,6 +35,12 @@ class _MyAppState extends State<MyApp> {
                 _createButton(
                     text: 'GET 请求',
                     onPressed: () {
+                      XHttp.getInstance().get('/api/get', {'id': 1});
+                      XHttp.getInstance().get('/api/get', {'id': 1});
+                      XHttp.getInstance().get('/api/get', {'id': 1});
+                      XHttp.getInstance().get('/api/get', {'id': 1});
+                      XHttp.getInstance().get('/api/get', {'id': 1});
+                      XHttp.getInstance().get('/api/get', {'id': 1});
                       XHttp.getInstance().get('/api/get', {'id': 1}).then((data) {
                         // DO SOMETHING
                       }).catchError((e) {

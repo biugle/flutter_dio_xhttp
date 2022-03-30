@@ -1,5 +1,7 @@
 // ignore_for_file: unnecessary_this
 
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
@@ -37,6 +39,8 @@ class XHttp {
 
   static CancelToken whiteListCancelToken = CancelToken(); // 取消网络请求白名单 token，此 token 不会被取消。
 
+  Map<String, CancelToken> _pendingRequests = {}; // 正在请求列表
+
   static Dio dio;
 
   String _getBaseUrl() => 'https://xxx.com';
@@ -52,6 +56,7 @@ class XHttp {
         connectTimeout: CONNECT_TIMEOUT,
         receiveTimeout: RECEIVE_TIMEOUT,
         sendTimeout: SEND_TIMEOUT,
+        extra: {'cancelDuplicatedRequest': true}, // 是否取消重复请求
       ));
       _init();
     }
@@ -59,6 +64,15 @@ class XHttp {
 
   /// 获取单例本身
   static final XHttp _instance = XHttp._internal();
+
+  /// 取消重复的请求
+  void _removePendingRequest(String tokenKey) {
+    if (_pendingRequests.containsKey(tokenKey)) {
+      // 如果在 pending 中存在当前请求标识，需要取消当前请求，并且移除。
+      _pendingRequests[tokenKey]?.cancel(tokenKey);
+      _pendingRequests.remove(tokenKey);
+    }
+  }
 
   /// 初始化 dio
   void _init() {
@@ -68,6 +82,18 @@ class XHttp {
         onRequest: (RequestOptions options, handler) async {
           if (kDebugMode) {
             print("请求之前");
+          }
+          if (dio.options.extra['cancelDuplicatedRequest'] == true && options.cancelToken == null) {
+            String tokenKey = [
+              options.method,
+              options.baseUrl + options.path,
+              jsonEncode(options.data ?? {}),
+              jsonEncode(options.queryParameters ?? {})
+            ].join('&');
+            _removePendingRequest(tokenKey);
+            options.cancelToken = CancelToken();
+            options.extra['tokenKey'] = tokenKey;
+            _pendingRequests[tokenKey] = options.cancelToken;
           }
           _handleRequest(options, handler);
           // 有 token 时，添加 token。放打印日志后面，避免泄露 token。
@@ -85,6 +111,9 @@ class XHttp {
           }
           _handleResponse(response, handler);
           RequestOptions option = response.requestOptions;
+          if (dio.options.extra['cancelDuplicatedRequest'] == true && option.cancelToken == null) {
+            _removePendingRequest(option.extra['tokenKey']);
+          }
           String code = (response?.data ?? {})['code'];
           String msg = (response?.data ?? {})['msg'] ?? response.statusMessage;
           // 静态数据 或者 根据后台实际返回结构解析，即 code == '0' 时，data 为有效数据。
@@ -97,6 +126,9 @@ class XHttp {
             print("出错之前");
           }
           _handleError(error);
+          if (!CancelToken.isCancel(error) && dio.options.extra['cancelDuplicatedRequest'] == true) {
+            _pendingRequests.clear(); // 不可抗力错误则清空列表
+          }
           // 发生错误同时也会返回一个 Result 结构，通过这个 Result 可以拿到响应状态等信息。
           if (error.response != null && error.response?.data != null) {
             error.response.data = Result(
@@ -254,7 +286,7 @@ class XHttp {
     String errshowMsg = errMsgLength > 300 ? errMsg.substring(0, 150) : errMsg;
     if (e is DioError) {
       if (CancelToken.isCancel(e)) {
-        Toast.show('Cancel Request Successful');
+        Toast.show('Cancel Request Successful'); // 取消重复请求可能会多次弹窗
         return;
       }
       Toast.show(errshowMsg, type: Toast.WARNING);
@@ -273,11 +305,17 @@ class XHttp {
     return _instance;
   }
 
-  /// 取消所有默认 cancelToken 的请求
+  /// 取消普通请求
   static XHttp cancelRequest() {
     Toast.hide();
-    cancelToken.cancel('cancel request');
-    cancelToken = CancelToken(); // 坑！取消后必须重新创建 cancelToken 否则后面使用原来 cancelToken 的请求会无效
+    if (dio.options.extra['cancelDuplicatedRequest'] == true) {
+      _instance._pendingRequests.forEach((tokenKey, cancelToken) {
+        cancelToken.cancel('cancel request $tokenKey');
+      });
+    } else {
+      cancelToken.cancel('cancel request');
+      cancelToken = CancelToken(); // 坑！取消后必须重新创建 cancelToken 否则后面使用原来 cancelToken 的请求会无效
+    }
     return _instance;
   }
 
@@ -306,15 +344,23 @@ class XHttp {
 
   /// get 请求
   Future get(String url, [Map<String, dynamic> params, resultDialogConfig, bool isCancelWhiteList = false]) async {
+    // 可转为使用 request 代替，简化代码。
     // 写中括号可以忽略参数名称，因为必须按顺序传参。
     Response response;
-    CancelToken setCancelToken = isCancelWhiteList ? whiteListCancelToken : cancelToken;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
       if (params != null) {
-        response = await dio.get(url, queryParameters: params, cancelToken: setCancelToken);
+        response = await dio.get(url, queryParameters: params, cancelToken: requestToken);
         return response.data;
       } else {
-        response = await dio.get(url, cancelToken: setCancelToken);
+        response = await dio.get(url, cancelToken: requestToken);
         return response.data;
       }
     } catch (e) {
@@ -326,9 +372,18 @@ class XHttp {
 
   /// post 请求
   Future post(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+    // 可转为使用 request 代替，简化代码。
     Response response;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
-      response = await dio.post(url, data: data, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+      response = await dio.post(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -339,9 +394,18 @@ class XHttp {
 
   /// put 请求
   Future put(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+    // 可转为使用 request 代替，简化代码。
     Response response;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
-      response = await dio.put(url, data: data, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+      response = await dio.put(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -352,9 +416,18 @@ class XHttp {
 
   /// patch 请求
   Future patch(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+    // 可转为使用 request 代替，简化代码。
     Response response;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
-      response = await dio.patch(url, data: data, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+      response = await dio.patch(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -365,9 +438,18 @@ class XHttp {
 
   /// delete 请求
   Future delete(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+    // 可转为使用 request 代替，简化代码。
     Response response;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
-      response = await dio.delete(url, data: data, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+      response = await dio.delete(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -392,13 +474,23 @@ class XHttp {
   }) async {
     XHttp.getInstance(baseUrl: baseUrl, msg: msg);
     Response response;
+
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
+
     try {
       response = await dio.request(
         url,
         options: options ?? Options(method: method, contentType: Headers.formUrlEncodedContentType),
         queryParameters: queryParameters,
         data: data,
-        cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken,
+        cancelToken: requestToken,
         onReceiveProgress: onReceiveProgress,
         onSendProgress: onSendProgress,
       );
@@ -416,11 +508,19 @@ class XHttp {
   /// 下载文件
   Future downloadFile(urlPath, savePath, [resultDialogConfig, bool isCancelWhiteList = false]) async {
     Response response;
+    var requestToken;
+    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+      if (isCancelWhiteList) {
+        requestToken = whiteListCancelToken;
+      } else {
+        requestToken = cancelToken;
+      }
+    }
     try {
       response = await dio.download(urlPath, savePath, onReceiveProgress: (int count, int total) {
         // 进度
         print("$count $total");
-      }, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+      }, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -432,9 +532,16 @@ class XHttp {
   // /// post 表单请求 【Web】
   // Future postForm(String url, [Map<String, dynamic> params, resultDialogConfig, bool isCancelWhiteList = false]) async {
   //   Response response;
+  //   var requestToken;
+  //   if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+  //     if (isCancelWhiteList) {
+  //       requestToken = whiteListCancelToken;
+  //     } else {
+  //       requestToken = cancelToken;
+  //     }
+  //   }
   //   try {
-  //     response = await dio.post(url,
-  //         queryParameters: params, cancelToken: isCancelWhiteList ? whiteListCancelToken : cancelToken);
+  //     response = await dio.post(url, queryParameters: params, cancelToken: requestToken);
   //     return response.data;
   //   } catch (e) {
   //     _catchOthersError(e);
