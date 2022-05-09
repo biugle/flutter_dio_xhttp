@@ -658,6 +658,11 @@ class XHttp {
     return _instance;
   }
 
+  /// 判断是否是取消异常
+  static bool isCancel(e) {
+    return CancelToken.isCancel(e);
+  }
+
   // /// 设置当前的请求数据格式
   // static XHttp setContentType(String contentType) {
   //   dio.options.contentType = contentType;
