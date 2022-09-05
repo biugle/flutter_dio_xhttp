@@ -5,11 +5,13 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:xhttp_demo/utils/xhttp.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(MyApp(
+    key: GlobalKey(),
+  ));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({Key key}) : super(key: key);
+  const MyApp({required Key key}) : super(key: key);
 
   @override
   _MyAppState createState() => _MyAppState();
@@ -141,7 +143,7 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-Widget _createButton({String text, Function onPressed}) {
+Widget _createButton({required String text, Function()? onPressed}) {
   return Container(padding: EdgeInsets.all(10), child: ElevatedButton(child: Text(text), onPressed: onPressed));
 }
 

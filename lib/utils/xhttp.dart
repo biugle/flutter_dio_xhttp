@@ -1,4 +1,4 @@
-// ignore_for_file: unnecessary_this
+// ignore_for_file: unnecessary_this, prefer_final_fields, constant_identifier_names, import_of_legacy_library_into_null_safe
 
 import 'dart:convert';
 
@@ -33,7 +33,7 @@ class XHttp {
 
   static String errorShowTitle = '发生错误啦'; // 错误提示标题
 
-  static String errorShowMsg; // 错误提示文字
+  static String? errorShowMsg; // 错误提示文字
 
   static CancelToken cancelToken = CancelToken(); // 取消网络请求 token，默认所有请求都可取消。
 
@@ -41,7 +41,7 @@ class XHttp {
 
   Map<String, CancelToken> _pendingRequests = {}; // 正在请求列表
 
-  static Dio dio;
+  static Dio? dio;
 
   String _getBaseUrl() => 'https://xxx.com';
 
@@ -77,13 +77,13 @@ class XHttp {
   /// 初始化 dio
   void _init() {
     // 添加拦截器
-    dio.interceptors.add(
+    dio!.interceptors.add(
       InterceptorsWrapper(
         onRequest: (RequestOptions options, handler) async {
           if (kDebugMode) {
             print("请求之前");
           }
-          if (dio.options.extra['cancelDuplicatedRequest'] == true && options.cancelToken == null) {
+          if (dio!.options.extra['cancelDuplicatedRequest'] == true && options.cancelToken == null) {
             String tokenKey = [
               options.method,
               options.baseUrl + options.path,
@@ -93,14 +93,14 @@ class XHttp {
             _removePendingRequest(tokenKey);
             options.cancelToken = CancelToken();
             options.extra['tokenKey'] = tokenKey;
-            _pendingRequests[tokenKey] = options.cancelToken;
+            _pendingRequests[tokenKey] = options.cancelToken!;
           }
           _handleRequest(options, handler);
           // 有 token 时，添加 token。放打印日志后面，避免泄露 token。
           // 也可以登录成功后掉用 XHttp.setToken() 方法设置 token，但是持久化的话还是要这样最好。
           String token = 'Bearer xxxxx';
-          if (token != dio.options.headers['authorization']) {
-            dio.options.headers['authorization'] = token;
+          if (token != dio!.options.headers['authorization']) {
+            dio!.options.headers['authorization'] = token;
             options.headers['authorization'] = token; // 不设置的话第一次的请求会有问题，上面的是全局设置尚未对本条请求生效。
           }
           return handler.next(options);
@@ -111,13 +111,13 @@ class XHttp {
           }
           _handleResponse(response, handler);
           RequestOptions option = response.requestOptions;
-          if (dio.options.extra['cancelDuplicatedRequest'] == true && option.cancelToken == null) {
+          if (dio!.options.extra['cancelDuplicatedRequest'] == true && option.cancelToken == null) {
             _removePendingRequest(option.extra['tokenKey']);
           }
           String code = (response?.data ?? {})['code'];
           String msg = (response?.data ?? {})['msg'] ?? response.statusMessage;
           // 静态数据 或者 根据后台实际返回结构解析，即 code == '0' 时，data 为有效数据。
-          bool isSuccess = option.contentType != null && option.contentType.contains("text") || code == '0';
+          bool isSuccess = option.contentType != null && option.contentType!.contains("text") || code == '0';
           response.data = Result(response.data, isSuccess, response.statusCode, msg, headers: response.headers);
           return handler.next(response);
         },
@@ -126,13 +126,13 @@ class XHttp {
             print("出错之前");
           }
           _handleError(error);
-          if (!CancelToken.isCancel(error) && dio.options.extra['cancelDuplicatedRequest'] == true) {
+          if (!CancelToken.isCancel(error) && dio!.options.extra['cancelDuplicatedRequest'] == true) {
             _pendingRequests.clear(); // 不可抗力错误则清空列表
           }
           // 发生错误同时也会返回一个 Result 结构，通过这个 Result 可以拿到响应状态等信息。
           if (error.response != null && error.response?.data != null) {
-            error.response.data = Result(
-                error.response.data, false, error.response?.statusCode, errorShowMsg ?? error.response?.statusMessage,
+            error.response!.data = Result(
+                error.response!.data, false, error.response?.statusCode, errorShowMsg ?? error.response?.statusMessage,
                 headers: error.response?.headers);
           } else {
             throw Exception(errorShowMsg);
@@ -242,7 +242,7 @@ class XHttp {
   }
 
   /// 统一结果提示处理
-  Future _showResultDialog(Response response, resultDialogConfig) async {
+  Future _showResultDialog(Response? response, resultDialogConfig) async {
     if (response == null) {
       return;
     }
@@ -296,11 +296,11 @@ class XHttp {
   }
 
   /// 本可以直接 XHttp.xxx 调用（添加 static 关键字给之后的 get/post 等方法），但是考虑多台服务器的情况，建议 XHttp.getInstance().xxx 调用。
-  static XHttp getInstance({String baseUrl, String msg}) {
+  static XHttp getInstance({String? baseUrl, String? msg}) {
     String targetBaseUrl = baseUrl ?? _instance._getBaseUrl();
     loadMsg = msg ?? DEFAULT_LOAD_MSG;
-    if (dio.options.baseUrl != targetBaseUrl) {
-      dio.options.baseUrl = targetBaseUrl;
+    if (dio!.options.baseUrl != targetBaseUrl) {
+      dio!.options.baseUrl = targetBaseUrl;
     }
     return _instance;
   }
@@ -308,7 +308,7 @@ class XHttp {
   /// 取消普通请求
   static XHttp cancelRequest() {
     Toast.hide();
-    if (dio.options.extra['cancelDuplicatedRequest'] == true) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] == true) {
       _instance._pendingRequests.forEach((tokenKey, cancelToken) {
         cancelToken.cancel('cancel request $tokenKey');
       });
@@ -343,12 +343,12 @@ class XHttp {
   }
 
   /// get 请求
-  Future get(String url, [Map<String, dynamic> params, resultDialogConfig, bool isCancelWhiteList = false]) async {
+  Future get(String url, [Map<String, dynamic>? params, resultDialogConfig, bool isCancelWhiteList = false]) async {
     // 可转为使用 request 代替，简化代码。
     // 写中括号可以忽略参数名称，因为必须按顺序传参。
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -357,10 +357,10 @@ class XHttp {
     }
     try {
       if (params != null) {
-        response = await dio.get(url, queryParameters: params, cancelToken: requestToken);
+        response = await dio!.get(url, queryParameters: params, cancelToken: requestToken);
         return response.data;
       } else {
-        response = await dio.get(url, cancelToken: requestToken);
+        response = await dio!.get(url, cancelToken: requestToken);
         return response.data;
       }
     } catch (e) {
@@ -371,11 +371,11 @@ class XHttp {
   }
 
   /// post 请求
-  Future post(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+  Future post(String url, [Map<String, dynamic>? data, resultDialogConfig, bool isCancelWhiteList = false]) async {
     // 可转为使用 request 代替，简化代码。
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -383,7 +383,7 @@ class XHttp {
       }
     }
     try {
-      response = await dio.post(url, data: data, cancelToken: requestToken);
+      response = await dio!.post(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -393,11 +393,11 @@ class XHttp {
   }
 
   /// put 请求
-  Future put(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+  Future put(String url, [Map<String, dynamic>? data, resultDialogConfig, bool isCancelWhiteList = false]) async {
     // 可转为使用 request 代替，简化代码。
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -405,7 +405,7 @@ class XHttp {
       }
     }
     try {
-      response = await dio.put(url, data: data, cancelToken: requestToken);
+      response = await dio!.put(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -415,11 +415,11 @@ class XHttp {
   }
 
   /// patch 请求
-  Future patch(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+  Future patch(String url, [Map<String, dynamic>? data, resultDialogConfig, bool isCancelWhiteList = false]) async {
     // 可转为使用 request 代替，简化代码。
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -427,7 +427,7 @@ class XHttp {
       }
     }
     try {
-      response = await dio.patch(url, data: data, cancelToken: requestToken);
+      response = await dio!.patch(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -437,11 +437,11 @@ class XHttp {
   }
 
   /// delete 请求
-  Future delete(String url, [Map<String, dynamic> data, resultDialogConfig, bool isCancelWhiteList = false]) async {
+  Future delete(String url, [Map<String, dynamic>? data, resultDialogConfig, bool isCancelWhiteList = false]) async {
     // 可转为使用 request 代替，简化代码。
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -449,7 +449,7 @@ class XHttp {
       }
     }
     try {
-      response = await dio.delete(url, data: data, cancelToken: requestToken);
+      response = await dio!.delete(url, data: data, cancelToken: requestToken);
       return response.data;
     } catch (e) {
       _catchOthersError(e);
@@ -462,21 +462,21 @@ class XHttp {
   static Future request(
     String url, {
     String method = XHttp.GET,
-    Map<String, dynamic> queryParameters,
-    Map<String, dynamic> data,
+    Map<String, dynamic>? queryParameters,
+    Map<String, dynamic>? data,
     bool isCancelWhiteList = false,
     resultDialogConfig,
-    Options options,
-    void Function(int, int) onSendProgress,
-    void Function(int, int) onReceiveProgress,
-    String msg,
-    String baseUrl,
+    Options? options,
+    void Function(int, int)? onSendProgress,
+    void Function(int, int)? onReceiveProgress,
+    String? msg,
+    String? baseUrl,
   }) async {
     XHttp.getInstance(baseUrl: baseUrl, msg: msg);
-    Response response;
+    Response? response;
 
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -485,7 +485,7 @@ class XHttp {
     }
 
     try {
-      response = await dio.request(
+      response = await dio!.request(
         url,
         options: options ?? Options(method: method, contentType: Headers.formUrlEncodedContentType),
         queryParameters: queryParameters,
@@ -507,9 +507,9 @@ class XHttp {
 
   /// 下载文件
   Future downloadFile(urlPath, savePath, [resultDialogConfig, bool isCancelWhiteList = false]) async {
-    Response response;
+    Response? response;
     var requestToken;
-    if (dio.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
+    if (dio!.options.extra['cancelDuplicatedRequest'] != true || isCancelWhiteList) {
       if (isCancelWhiteList) {
         requestToken = whiteListCancelToken;
       } else {
@@ -517,7 +517,7 @@ class XHttp {
       }
     }
     try {
-      response = await dio.download(urlPath, savePath, onReceiveProgress: (int count, int total) {
+      response = await dio!.download(urlPath, savePath, onReceiveProgress: (int count, int total) {
         // 进度
         print("$count $total");
       }, cancelToken: requestToken);
@@ -554,87 +554,87 @@ class XHttp {
 
   /// 获取当前的 baseUrl
   static String getBaseUrl() {
-    return dio.options.baseUrl;
+    return dio!.options.baseUrl;
   }
 
   /// 设置当前的 baseUrl
   static XHttp setBaseUrl(String baseUrl) {
-    dio.options.baseUrl = baseUrl;
+    dio!.options.baseUrl = baseUrl;
     return _instance;
   }
 
   /// 获取当前 headers
   static Map getHeaders() {
-    return dio.options.headers;
+    return dio!.options.headers;
   }
 
   /// 获取当前 headers 属性
   static dynamic getHeader(String key) {
-    return dio.options.headers[key];
+    return dio!.options.headers[key];
   }
 
   /// 设置当前 headers
   static XHttp setHeaders(Map headers) {
-    dio.options.headers = headers;
+    dio!.options.headers = headers.cast<String, dynamic>();
     return _instance;
   }
 
   /// 设置当前 headers 属性
   static XHttp setHeader(String key, String value) {
-    dio.options.headers[key] = value;
+    dio!.options.headers[key] = value;
     return _instance;
   }
 
   /// 删除当前的请求头属性
   static XHttp removeHeader(String key) {
-    dio.options.headers.remove(key);
+    dio!.options.headers.remove(key);
     return _instance;
   }
 
   /// 删除当前的所有请求头属性
   static XHttp removeAllHeaders() {
-    dio.options.headers.clear();
+    dio!.options.headers.clear();
     return _instance;
   }
 
   /// 获取当前的所有超时时间
   static Map getRequestTimeout() {
     return {
-      'connectTimeout': dio.options.connectTimeout,
-      'receiveTimeout': dio.options.receiveTimeout,
-      'sendTimeout': dio.options.sendTimeout
+      'connectTimeout': dio!.options.connectTimeout,
+      'receiveTimeout': dio!.options.receiveTimeout,
+      'sendTimeout': dio!.options.sendTimeout
     };
   }
 
   /// 设置当前的所有超时时间
   static XHttp setRequestTimeout(int timeout) {
-    dio.options.connectTimeout = timeout;
-    dio.options.receiveTimeout = timeout;
-    dio.options.sendTimeout = timeout;
+    dio!.options.connectTimeout = timeout;
+    dio!.options.receiveTimeout = timeout;
+    dio!.options.sendTimeout = timeout;
     return _instance;
   }
 
   /// 设置当前的连接超时时间
   static XHttp setConnectTimeout(int timeout) {
-    dio.options.connectTimeout = timeout;
+    dio!.options.connectTimeout = timeout;
     return _instance;
   }
 
   /// 设置当前的接收超时时间
   static XHttp setReceiveTimeout(int timeout) {
-    dio.options.receiveTimeout = timeout;
+    dio!.options.receiveTimeout = timeout;
     return _instance;
   }
 
   /// 设置当前的发送超时时间
   static XHttp setSendTimeout(int timeout) {
-    dio.options.sendTimeout = timeout;
+    dio!.options.sendTimeout = timeout;
     return _instance;
   }
 
   /// 获取用户数据
-  static Map<String, dynamic> getAuthUser() {
-    String token = dio.options.headers['authorization'];
+  static Map<String, dynamic>? getAuthUser() {
+    String token = dio!.options.headers['authorization'];
     if (null == token) {
       return null;
     }
@@ -643,11 +643,11 @@ class XHttp {
   }
 
   /// 设置当前 token
-  static XHttp setAuthToken([String token]) {
+  static XHttp setAuthToken([String? token]) {
     if (null == token) {
-      dio.options.headers.remove('authorization');
+      dio!.options.headers.remove('authorization');
     } else {
-      dio.options.headers['authorization'] = token;
+      dio!.options.headers['authorization'] = token;
     }
     return _instance;
   }
@@ -769,8 +769,8 @@ extension List2StringEx on List {
 class Result {
   var data;
   bool success;
-  int code;
-  String msg;
+  int? code;
+  String? msg;
   var headers;
   Result(this.data, this.success, this.code, this.msg, {this.headers});
 }
@@ -796,7 +796,7 @@ class Toast {
     EasyLoading.showProgress(value, status: msg);
   }
 
-  static show(String msg, {String type}) {
+  static show(String msg, {String? type}) {
     switch (type) {
       case Toast.SUCCESS:
         EasyLoading.showSuccess(msg);
